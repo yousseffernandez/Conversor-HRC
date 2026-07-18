@@ -1,5 +1,1 @@
 streamlit
-easyocr
-opencv-python-headless
-numpy
-streamlit-paste-button
