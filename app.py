@@ -1,10 +1,6 @@
 import json
 import re
 import streamlit as st
-import easyocr
-import cv2
-import numpy as np
-from streamlit_paste_button import paste_image_button
 
 # Configuração da página do Streamlit
 st.set_page_config(
@@ -13,82 +9,28 @@ st.set_page_config(
     layout="centered"
 )
 
-# Inicializa o leitor de OCR em cache para não carregar toda vez
-@st.cache_resource
-def carregar_leitor_ocr():
-    return easyocr.Reader(['pt', 'en'], gpu=False)
-
 st.title("🃏 Conversor Poker → HRC JSON")
 st.markdown("Transforme os dados do PokerCraft ou SharkScope em arquivos estruturados para o HRC.")
 st.markdown("---")
 
-# Inputs fixos na interface
+# Inputs da interface web
 nome_torneio = st.text_input("Nome do Torneio:", placeholder="Ex: Daily Main Event $250")
 chips_raw = st.text_input("Quantidade de Fichas (Chips):", placeholder="Ex: 100000")
+texto = st.text_area("Cole os dados do Torneio aqui:", height=250, placeholder="Cole as linhas do PokerCraft ou SharkScope...")
 
-st.markdown("### Selecione o método de entrada de dados:")
-aba_texto, aba_imagem = st.tabs(["📄 Colar Texto (Original)", "📸 Colar Print/Imagem (Ctrl+V)"])
-
-texto_para_processar = ""
-
-# --- ABA 1: TEXTO TRADICIONAL ---
-with aba_texto:
-    texto_puro = st.text_area(
-        "Cole as linhas do PokerCraft ou SharkScope aqui:", 
-        height=250, 
-        placeholder="Cole as linhas copiadas...",
-        key="txt_area"
-    )
-    if texto_puro:
-        texto_para_processar = texto_puro
-
-# --- ABA 2: LEITURA DE PRINT POR CTRL+V ---
-with aba_imagem:
-    st.info("💡 Tire um print da tabela (Win + Shift + S) e clique no botão abaixo para colar direto com Ctrl+V!")
-    
-    # Cria o botão que escuta o Ctrl+V
-    colado = paste_image_button(
-        label="📋 CLIQUE AQUI E DEPOIS DÊ CTRL + V PARA COLAR O PRINT",
-        background_color="#FF4B4B",
-        hover_background_color="#D32F2F",
-        errors="ignore"
-    )
-    
-    if colado and colado.image_data is not None:
-        st.image(colado.image_data, caption="Print colado com sucesso!", use_container_width=True)
-        
-        with st.spinner("Processando imagem e extraindo texto..."):
-            try:
-                # Converte os dados da imagem colada para o formato do OpenCV
-                img_bgr = cv2.cvtColor(np.array(colado.image_data), cv2.COLOR_RGB2BGR)
-                
-                # Executa o OCR
-                reader = carregar_leitor_ocr()
-                resultado_ocr = reader.readtext(img_bgr, detail=0)
-                
-                # Junta o texto lido
-                texto_para_processar = "\n".join(resultado_ocr)
-                
-                st.success("🤖 Texto extraído da imagem com sucesso!")
-                with st.expander("Ver texto que a Inteligência Artificial conseguiu ler:"):
-                    st.code(texto_para_processar)
-                    st.warning("⚠️ Atenção: Verifique se o leitor não trocou nenhuma letra ou número devido à resolução.")
-            except Exception as e:
-                st.error(f"Erro ao processar a imagem: {str(e)}")
-
-# --- BOTÃO DE PROCESSAMENTO GERAL ---
-st.markdown("---")
 if st.button("CONVERTER DADOS", type="primary"):
+    # Validações iniciais
     if not nome_torneio:
         st.error("⚠️ Por favor, digite o nome do torneio.")
     elif not chips_raw:
         st.error("⚠️ Por favor, digite a quantidade de fichas.")
-    elif not texto_para_processar:
-        st.error("⚠️ Nenhum dado encontrado. Cole o texto ou dê Ctrl+V em uma imagem válida.")
     else:
         try:
+            # Suporta tanto vírgula quanto ponto para decimais/milhar
             chips = float(chips_raw.replace(",", "."))
-            linhas = [l.strip() for l in texto_para_processar.strip().split("\n") if l.strip()]
+            
+            # Processamento do texto
+            linhas = [l.strip() for l in texto.strip().split("\n") if l.strip()]
             prizes = {}
             i = 0
 
@@ -101,7 +43,7 @@ if st.button("CONVERTER DADOS", type="primary"):
                 if linha.isdigit() and i + 2 < len(linhas):
                     posicao = linha
                     linha_valor = linhas[i + 2]
-                    valores = re.findall(r'[$¥€]([\d,]+\.\d+)', App_hrc_valor := linha_valor)
+                    valores = re.findall(r'[$¥€]([\d,]+\.\d+)', linha_valor)
 
                     if valores:
                         valores_limpos = [float(v.replace(",", "")) for v in valores]
@@ -148,9 +90,11 @@ if st.button("CONVERTER DADOS", type="primary"):
 
                 i += 1
 
+            # Se deu tudo certo e achou prêmios
             if not prizes:
-                st.warning("🕵️‍♂️ Nenhum dado de premiação foi reconhecido pelo filtro. Garanta que os valores e posições aparecem claramente no print.")
+                st.warning("🕵️‍♂️ Nenhum dado válido de premiação foi encontrado no texto. Verifique a formatação.")
             else:
+                # Monta a estrutura do JSON
                 data = {
                     "name": "/",
                     "folders": [],
@@ -165,10 +109,15 @@ if st.button("CONVERTER DADOS", type="primary"):
                     ]
                 }
 
+                # Transforma o dicionário em string formatada em JSON
                 json_string = json.dumps(data, ensure_ascii=False, indent=2)
+                
+                # Nome do arquivo limpo para o download
                 nome_arquivo = re.sub(r'[\\/*?:"<>|]', "", nome_torneio) + ".json"
 
                 st.success("✅ Dados processados com sucesso!")
+                
+                # Botão nativo do Streamlit para baixar o arquivo gerado
                 st.download_button(
                     label="📥 BAIXAR ARQUIVO JSON",
                     data=json_string,
@@ -179,4 +128,4 @@ if st.button("CONVERTER DADOS", type="primary"):
         except ValueError:
             st.error("⚠️ A quantidade de fichas deve ser um número válido.")
         except Exception as e:
-            st.error(f"💥 Erro no processamento: {str(e)}")
+            st.error(f"💥 Ocorreu um erro inesperado: {str(e)}")
