@@ -90,11 +90,23 @@ if st.button("CONVERTER DADOS", type="primary"):
 
                 i += 1
 
-            # Se deu tudo certo e achou prêmios
-            if not prizes:
+            # 🛠️ FILTRO DE SEGURANÇA (LIMPEZA DO BUG)
+            # Remove qualquer posição que tenha valor zero, nulo ou que não seja estritamente maior que 0
+            prizes_limpos = {}
+            for pos, val in prizes.items():
+                try:
+                    val_float = float(val)
+                    # Só adiciona se for um número válido maior que zero e a posição for válida
+                    if val_float > 0 and pos.isdigit():
+                        prizes_limpos[pos] = val_float
+                except:
+                    continue
+
+            # Se deu tudo certo e achou prêmios válidos
+            if not prizes_limpos:
                 st.warning("🕵️‍♂️ Nenhum dado válido de premiação foi encontrado no texto. Verifique a formatação.")
             else:
-                # Monta a estrutura do JSON
+                # Monta a estrutura do JSON com o dicionário filtrado
                 data = {
                     "name": "/",
                     "folders": [],
@@ -104,7 +116,7 @@ if st.button("CONVERTER DADOS", type="primary"):
                             "bountyType": "PKO",
                             "progressiveFactor": 0.5,
                             "chips": chips,
-                            "prizes": prizes
+                            "prizes": prizes_limpos
                         }
                     ]
                 }
@@ -115,7 +127,7 @@ if st.button("CONVERTER DADOS", type="primary"):
                 # Nome do arquivo limpo para o download
                 nome_arquivo = re.sub(r'[\\/*?:"<>|]', "", nome_torneio) + ".json"
 
-                st.success("✅ Dados processados com sucesso!")
+                st.success("✅ Dados processados e limpos com sucesso!")
                 
                 # Botão nativo do Streamlit para baixar o arquivo gerado
                 st.download_button(
