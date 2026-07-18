@@ -4,6 +4,7 @@ import streamlit as st
 import easyocr
 import cv2
 import numpy as np
+from streamlit_paste_button import paste_image_button
 
 # Configuração da página do Streamlit
 st.set_page_config(
@@ -15,7 +16,6 @@ st.set_page_config(
 # Inicializa o leitor de OCR em cache para não carregar toda vez
 @st.cache_resource
 def carregar_leitor_ocr():
-    # Carrega suporte para Português e Inglês
     return easyocr.Reader(['pt', 'en'], gpu=False)
 
 st.title("🃏 Conversor Poker → HRC JSON")
@@ -27,8 +27,7 @@ nome_torneio = st.text_input("Nome do Torneio:", placeholder="Ex: Daily Main Eve
 chips_raw = st.text_input("Quantidade de Fichas (Chips):", placeholder="Ex: 100000")
 
 st.markdown("### Selecione o método de entrada de dados:")
-# Cria duas abas para separar os métodos
-aba_texto, aba_imagem = st.tabs(["📄 Colar Texto (Original)", "📸 Enviar Print/Imagem (Teste)"])
+aba_texto, aba_imagem = st.tabs(["📄 Colar Texto (Original)", "📸 Colar Print/Imagem (Ctrl+V)"])
 
 texto_para_processar = ""
 
@@ -43,31 +42,37 @@ with aba_texto:
     if texto_puro:
         texto_para_processar = texto_puro
 
-# --- ABA 2: LEITURA DE PRINT ---
+# --- ABA 2: LEITURA DE PRINT POR CTRL+V ---
 with aba_imagem:
-    st.info("💡 Teste: tire um print da tabela do torneio e arraste para cá. O sistema tentará ler os valores.")
-    arquivo_imagem = st.file_uploader("Escolha ou arraste um print do Torneio (PNG, JPG):", type=["png", "jpg", "jpeg"])
+    st.info("💡 Tire um print da tabela (Win + Shift + S) e clique no botão abaixo para colar direto com Ctrl+V!")
     
-    if arquivo_imagem:
-        st.image(arquivo_imagem, caption="Print carregado", use_container_width=True)
+    # Cria o botão que escuta o Ctrl+V
+    colado = paste_image_button(
+        label="📋 CLIQUE AQUI E DEPOIS DÊ CTRL + V PARA COLAR O PRINT",
+        background_color="#FF4B4B",
+        hover_background_color="#D32F2F",
+        errors="ignore"
+    )
+    
+    if colado and colado.image_data is not None:
+        st.image(colado.image_data, caption="Print colado com sucesso!", use_container_width=True)
         
         with st.spinner("Processando imagem e extraindo texto..."):
             try:
-                # Converte os bytes da imagem para o formato que o OpenCV entende
-                file_bytes = np.asarray(bytearray(arquivo_imagem.read()), dtype=np.uint8)
-                img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                # Converte os dados da imagem colada para o formato do OpenCV
+                img_bgr = cv2.cvtColor(np.array(colado.image_data), cv2.COLOR_RGB2BGR)
                 
                 # Executa o OCR
                 reader = carregar_leitor_ocr()
-                resultado_ocr = reader.readtext(img, detail=0)
+                resultado_ocr = reader.readtext(img_bgr, detail=0)
                 
-                # Junta o texto lido linha por linha
+                # Junta o texto lido
                 texto_para_processar = "\n".join(resultado_ocr)
                 
                 st.success("🤖 Texto extraído da imagem com sucesso!")
                 with st.expander("Ver texto que a Inteligência Artificial conseguiu ler:"):
                     st.code(texto_para_processar)
-                    st.warning("⚠️ Atenção: Verifique no campo acima se o leitor não errou nenhum número ou símbolo por conta da resolução da imagem.")
+                    st.warning("⚠️ Atenção: Verifique se o leitor não trocou nenhuma letra ou número devido à resolução.")
             except Exception as e:
                 st.error(f"Erro ao processar a imagem: {str(e)}")
 
@@ -79,18 +84,15 @@ if st.button("CONVERTER DADOS", type="primary"):
     elif not chips_raw:
         st.error("⚠️ Por favor, digite a quantidade de fichas.")
     elif not texto_para_processar:
-        st.error("⚠️ Nenhum dado encontrado. Cole o texto ou envie uma imagem válida.")
+        st.error("⚠️ Nenhum dado encontrado. Cole o texto ou dê Ctrl+V em uma imagem válida.")
     else:
         try:
             chips = float(chips_raw.replace(",", "."))
-            
-            # Divide o texto obtido (seja via área de texto ou via imagem)
             linhas = [l.strip() for l in texto_para_processar.strip().split("\n") if l.strip()]
             prizes = {}
             i = 0
 
             while i < len(linhas):
-                linha = list(prizes.keys()) # Apenas auxiliar de lógica anterior
                 linha = linhas[i]
 
                 # =========================
@@ -99,7 +101,7 @@ if st.button("CONVERTER DADOS", type="primary"):
                 if linha.isdigit() and i + 2 < len(linhas):
                     posicao = linha
                     linha_valor = linhas[i + 2]
-                    valores = re.findall(r'[$¥€]([\d,]+\.\d+)', linha_valor)
+                    valores = re.findall(r'[$¥€]([\d,]+\.\d+)', App_hrc_valor := linha_valor)
 
                     if valores:
                         valores_limpos = [float(v.replace(",", "")) for v in valores]
@@ -147,7 +149,7 @@ if st.button("CONVERTER DADOS", type="primary"):
                 i += 1
 
             if not prizes:
-                st.warning("🕵️‍♂️ Nenhum dado de premiação foi reconhecido. Se usou imagem, garanta que os símbolos ($, €, ¥) e números estão bem nítidos.")
+                st.warning("🕵️‍♂️ Nenhum dado de premiação foi reconhecido pelo filtro. Garanta que os valores e posições aparecem claramente no print.")
             else:
                 data = {
                     "name": "/",
